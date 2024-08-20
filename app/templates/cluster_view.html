@@ -36,6 +36,7 @@
 <body>
     <h2>Image Clusters</h2>
     <button id="add-cluster-button">Add New Cluster</button>
+    <button id="recluster-button">Recluster</button> 
 
     <div id="clusters">
         {% for cluster_id, cluster_data in clusters.items() %}
@@ -152,21 +153,26 @@
 
                 console.log(`Deleting cluster ${clusterId}`);
 
+                // Disable the delete button to prevent double-clicks
+                $(this).prop('disabled', true);
+
                 $.ajax({
                     url: "/delete_cluster",
                     method: "POST",
                     data: JSON.stringify({ cluster_id: clusterId }),
                     contentType: "application/json",
                     success: function(response) {
-                        clusterDiv.remove();
                         console.log("Cluster deleted successfully", response);
+                        refreshClusters(); // Refresh the entire clusters view
                     },
-                    error: function() {
+                    error: function(xhr, status, error) {
                         alert("Failed to delete cluster.");
-                        console.error("Error in deleting cluster");
+                        console.error("Error in deleting cluster", status, error);
                     }
                 });
             });
+
+
         }
         // Bind events to the existing clusters
         bindClusterEvents();
@@ -205,12 +211,15 @@
 
 
        // Refresh clusters by fetching from backend
-        function refreshClusters() {
+       function refreshClusters() {
             $.ajax({
-                url: "/clusters",
+                url: "/get_clusters",
                 method: "GET",
                 success: function(response) {
+                    console.log("Received clusters data:", response);  // Debug: Log the received data
+
                     $('#clusters').empty();  // Clear the existing clusters
+                    // Populate the clusters with the updated data
                     $.each(response.clusters, function(clusterId, clusterData) {
                         let clusterHtml = `
                             <div class="cluster" data-cluster-id="${clusterId}">
@@ -228,24 +237,28 @@
                 },
                 error: function() {
                     alert("Failed to refresh clusters.");
+                    console.error("Error in refreshing clusters");
                 }
             });
         }
 
-
-        // Re-cluster images
+        
+        // Recluster button click event
         $("#recluster-button").on("click", function() {
-            $.ajax({
-                url: "/recluster",
-                method: "POST",
-                success: function(response) {
-                    console.log("Re-clustering successful", response);
-                    refreshClusters();  // Reload the clusters from the backend
-                },
-                error: function(xhr, status, error) {
-                    console.error("Error in re-clustering:", error);
-                }
-            });
+            if (confirm("Are you sure you want to recluster all images? This will overwrite the current clusters.")) {
+                $.ajax({
+                    url: "/recluster",
+                    method: "POST",
+                    success: function(response) {
+                        console.log("Recluster successful", response);
+                        refreshClusters(); // Refresh clusters after reclustering
+                    },
+                    error: function(xhr, status, error) {
+                        console.error("Error in reclustering:", error);
+                        alert("Failed to recluster images.");
+                    }
+                });
+            }
         });
     </script>
 </body>

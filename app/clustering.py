@@ -63,27 +63,30 @@ def add_cluster():
 
 def delete_cluster(cluster_id, target_cluster_id=None):
     cluster_id = int(cluster_id)
-    global clusters
 
-    if cluster_id in clusters:
-        # If a target cluster ID is specified, move the images to that cluster
-        if target_cluster_id is not None:
-            target_cluster_id = int(target_cluster_id)
-            if target_cluster_id not in clusters:
-                return jsonify({'status': 'error', 'message': 'Target cluster does not exist'}), 400
-
-            # Move images from the cluster to be deleted to the target cluster
-            clusters[target_cluster_id]['images'].extend(clusters[cluster_id]['images'])
-
-        # Delete the cluster
-        del clusters[cluster_id]
-
-        # Save the updated clusters to the file
-        save_clusters_to_file()
-
-        return jsonify({'status': 'success'})
+    # Find the next available cluster if no target_cluster_id is provided
+    if target_cluster_id is None:
+        cluster_ids = sorted(clusters.keys())
+        next_cluster_id = None
+        for cid in cluster_ids:
+            if cid != cluster_id:
+                next_cluster_id = cid
+                break
     else:
-        return jsonify({'status': 'error', 'message': 'Cluster not found'}), 400
+        next_cluster_id = int(target_cluster_id)
+
+    if next_cluster_id is None:
+        return jsonify({'status': 'error', 'message': 'No available cluster to transfer images'}), 400
+
+    # Transfer images to the next cluster
+    if cluster_id in clusters and next_cluster_id in clusters:
+        clusters[next_cluster_id]['images'].extend(clusters[cluster_id]['images'])
+        del clusters[cluster_id]
+        save_clusters_to_file()  # Save the state after deletion and transfer
+        return jsonify({'status': 'success', 'new_cluster_data': clusters[next_cluster_id]})
+    else:
+        return jsonify({'status': 'error', 'message': 'Cluster ID not found'}), 400
+
 
 
 def rename_cluster(cluster_id, new_name):
