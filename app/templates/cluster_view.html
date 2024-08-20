@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Image Clusters</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
+    <style>
+        .cluster {
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            display: inline-block;
+            vertical-align: top;
+            width: 200px;
+            min-height: 100px;
+        }
+        .cluster h3 {
+            display: inline;
+            cursor: pointer;
+        }
+        .cluster img {
+            margin: 5px;
+            cursor: move;
+            display: block;
+            width: 100px;
+        }
+        .delete-cluster {
+            cursor: pointer;
+            color: red;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Image Clusters</h2>
+    <button id="add-cluster-button">Add New Cluster</button>
+
+    <div id="clusters">
+        {% for cluster_id, cluster_data in clusters.items() %}
+            <div class="cluster" data-cluster-id="{{ cluster_id }}">
+                <h3 class="cluster-name" data-original-name="{{ cluster_data.name }}">{{ cluster_data.name }}</h3>
+                <span class="delete-cluster">Delete</span>
+                <div class="image-container">
+                    {% for image in cluster_data.images %}
+                        <img src="{{ url_for('static', filename='images/' ~ image) }}" alt="{{ image }}" class="draggable" data-image="{{ image }}">
+                    {% endfor %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <script>
+
+        clusters = {}
+
+        
+        function bindClusterEvents() {
+            $(".draggable").draggable({
+                revert: "invalid",
+                helper: "clone"
+            });
+
+            $(".image-container").droppable({
+                accept: ".draggable",
+                drop: function(event, ui) {
+                    let image = ui.helper.data("image");
+                    let oldClusterId = ui.helper.closest('.cluster').data("cluster-id");
+                    let newClusterId = $(this).closest('.cluster').data("cluster-id");
+
+                    console.log(`Moving image ${image} from cluster ${oldClusterId} to cluster ${newClusterId}`);
+
+                    // Move the image to the new cluster visually by cloning and removing the original
+                    let $imageElement = ui.helper.clone().css({position: "relative", top: 0, left: 0});
+                    $(this).append($imageElement);
+                    ui.helper.remove();
+
+                    // Re-bind draggable functionality to the newly added image
+                    $imageElement.draggable({
+                        revert: "invalid",
+                        helper: "clone"
+                    });
+
+                    // Send AJAX request to update the server
+                    $.ajax({
+                        url: "/move_image",
+                        method: "POST",
+                        data: JSON.stringify({
+                            image: image,
+                            old_cluster_id: parseInt(oldClusterId, 10),  // Ensure integer type
+                            new_cluster_id: parseInt(newClusterId, 10)   // Ensure integer type
+                        }),
+                        contentType: "application/json",
+                        success: function(response) {
+                            console.log("Image moved successfully", response);
+                            $('[data-cluster-id="' + oldClusterId + '"] img[data-image="' + image + '"]').remove();
+                        },
+                        error: function() {
+                            alert("Failed to move image.");
+                            console.error("Error in moving image");
+                        }
+                    });
+
+                }
+            });
+
+            // Make cluster names editable and handle renaming
+            $(".cluster-name").on("keypress", function(e) {
+                if (e.which === 13) {  // Enter key
+                    e.preventDefault();
+                    $(this).blur();  // Trigger blur event to handle renaming
+                }
+            }).on("blur", function() {
+                let clusterDiv = $(this).closest('.cluster');
+                let clusterId = clusterDiv.data("cluster-id");
+                let newName = $(this).text().trim();
+                let originalName = $(this).data("original-name");
+
+                if (newName !== originalName) {
+                    console.log(`Renaming cluster ${clusterId} to ${newName}`);
+
+                    $.ajax({
+                    url: "/rename_cluster",
+                    method: "POST",
+                    data: JSON.stringify({
+                        cluster_id: parseInt(clusterId), // Ensure it's an integer
+                        new_name: newName
+                    }),
+                    contentType: "application/json",
+                    success: (response) => {
+                        console.log("Cluster renamed successfully", response);
+                        $(this).data("original-name", newName); // Update the original name
+                    },
+                    error: () => {
+                        alert("Failed to rename cluster.");
+                        console.error("Error in renaming cluster");
+                        $(this).text(originalName); // Revert to original name if rename failed
+                    }
+                });
+                }
+            }).on("click", function() {
+                $(this).attr('contenteditable', 'true').focus();
+            });
+
+            // Handle cluster deletion
+            $(".delete-cluster").on("click", function() {
+                if (!confirm("Are you sure you want to delete this cluster?")) return;
+
+                let clusterDiv = $(this).closest('.cluster');
+                let clusterId = clusterDiv.data("cluster-id");
+
+                console.log(`Deleting cluster ${clusterId}`);
+
+                $.ajax({
+                    url: "/delete_cluster",
+                    method: "POST",
+                    data: JSON.stringify({ cluster_id: clusterId }),
+                    contentType: "application/json",
+                    success: function(response) {
+                        clusterDiv.remove();
+                        console.log("Cluster deleted successfully", response);
+                    },
+                    error: function() {
+                        alert("Failed to delete cluster.");
+                        console.error("Error in deleting cluster");
+                    }
+                });
+            });
+        }
+        // Bind events to the existing clusters
+        bindClusterEvents();
+
+
+        // Add a new cluster
+        $("#add-cluster-button").on("click", function() {
+            console.log("Add New Cluster button clicked!");
+
+            $.ajax({
+                url: "/add_cluster",
+                method: "POST",
+                data: JSON.stringify({}),  // No need to send cluster_id
+                contentType: "application/json",
+                success: function(response) {
+                    console.log("Cluster added successfully", response);
+
+                    // Now add the cluster to the UI using the ID provided by the backend
+                    let newClusterId = response.cluster_id;
+                    let newCluster = $(`
+                        <div class="cluster" data-cluster-id="${newClusterId}">
+                            <h3 class="cluster-name" data-original-name="Cluster ${newClusterId}">Cluster ${newClusterId}</h3>
+                            <span class="delete-cluster">Delete</span>
+                            <div class="image-container"></div>
+                        </div>
+                    `);
+
+                    $("#clusters").append(newCluster);
+                    bindClusterEvents();  // Re-bind events to the new cluster
+                },
+                error: function(xhr, status, error) {
+                    console.error("Error in adding cluster:", xhr.responseText);
+                }
+            });
+        });
+
+
+       // Refresh clusters by fetching from backend
+        function refreshClusters() {
+            $.ajax({
+                url: "/clusters",
+                method: "GET",
+                success: function(response) {
+                    $('#clusters').empty();  // Clear the existing clusters
+                    $.each(response.clusters, function(clusterId, clusterData) {
+                        let clusterHtml = `
+                            <div class="cluster" data-cluster-id="${clusterId}">
+                                <h3 class="cluster-name" data-original-name="${clusterData.name}">${clusterData.name}</h3>
+                                <span class="delete-cluster">Delete</span>
+                                <div class="image-container">
+                        `;
+                        $.each(clusterData.images, function(_, image) {
+                            clusterHtml += `<img src="/static/images/${image}" alt="${image}" class="draggable" data-image="${image}">`;
+                        });
+                        clusterHtml += '</div></div>';
+                        $('#clusters').append(clusterHtml);
+                    });
+                    bindClusterEvents();  // Re-bind events to the new elements
+                },
+                error: function() {
+                    alert("Failed to refresh clusters.");
+                }
+            });
+        }
+
+
+        // Re-cluster images
+        $("#recluster-button").on("click", function() {
+            $.ajax({
+                url: "/recluster",
+                method: "POST",
+                success: function(response) {
+                    console.log("Re-clustering successful", response);
+                    refreshClusters();  // Reload the clusters from the backend
+                },
+                error: function(xhr, status, error) {
+                    console.error("Error in re-clustering:", error);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
